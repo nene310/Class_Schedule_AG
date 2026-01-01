@@ -735,37 +735,186 @@ document.getElementById('btnSaveHtml').addEventListener('click', () => {
         iterDate.setMonth(iterDate.getMonth() + 1);
     }
 
-    // 3. Get CSS logic
-    // We need to inject the CSS. Since we can't easily read the file from JS in browser context 
-    // without fetching, we will attempt to fetch 'style.css' or copy styles from document.styleSheets.
-    // Simpler: Just fetch style.css assuming it's relative.
-    // Or iterate stylesheets.
-    let cssText = "";
-    // Note: styles might be cross-origin protected if not local. But this is local file context or same origin.
-    // Let's try to get all rules.
-    for (let i = 0; i < document.styleSheets.length; i++) {
-        try {
-            const rules = document.styleSheets[i].cssRules;
-            for (let j = 0; j < rules.length; j++) {
-                cssText += rules[j].cssText + "\n";
-            }
-        } catch (e) { console.warn("Cannot read rules", e); }
-    }
+    // 3. Define a vibrant and modern stylesheet for the export
+    const cssText = `
+        :root {
+            --primary: #3b82f6;
+            --bg: #f1f5f9;
+            --card-bg: #ffffff;
+            --text-main: #1e293b;
+            --text-muted: #64748b;
+            --border: #e2e8f0;
+            --morning: #10b981;
+            --afternoon: #f59e0b;
+            --evening: #6366f1;
+            --radius: 12px;
+            --shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+        }
 
-    // Add specific overrides for the HTML export to look good (similar to Print but scrollable)
-    cssText += `
-        body { background: white; font-family: 'Segoe UI', sans-serif; }
-        .month-container { margin-bottom: 50px; border-bottom: 2px dashed #eee; padding-bottom: 20px; }
-        .calendar-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
-        .calendar-day { border: 1px solid #eee; min-height: 100px; padding: 4px; }
-        .calendar-header-cell { text-align: center; background: #f8f9fa; padding: 5px; font-weight: bold; }
-        .event-item { margin-bottom: 2px; padding: 2px; font-size: 0.85em; cursor: help; }
-        .type-morning { border-left: 3px solid #10b981; background: #ecfdf5; }
-        .type-afternoon { border-left: 3px solid #f59e0b; background: #fffbeb; }
-        .type-evening { border-left: 3px solid #8b5cf6; background: #f5f3ff; }
-        h2 { text-align: center; color: #333; }
-        /* Hide non-print stuff if copied from main css */
-        .no-print { display: none; }
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body { 
+            background: var(--bg); 
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; 
+            color: var(--text-main);
+            line-height: 1.5;
+            padding: 40px 20px;
+            overflow-y: auto;
+            height: auto;
+        }
+
+        .export-header {
+            max-width: 1200px;
+            margin: 0 auto 40px auto;
+            text-align: center;
+        }
+
+        .export-header h1 {
+            font-size: 2.5rem;
+            font-weight: 800;
+            color: var(--primary);
+            margin-bottom: 8px;
+            letter-spacing: -0.025em;
+        }
+
+        .export-header p {
+            color: var(--text-muted);
+            font-size: 1.1rem;
+        }
+
+        .content-wrapper {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .month-container { 
+            background: var(--card-bg);
+            border-radius: var(--radius);
+            box-shadow: var(--shadow);
+            padding: 24px;
+            margin-bottom: 40px; 
+            border: 1px solid var(--border);
+        }
+
+        .month-title { 
+            font-size: 1.5rem;
+            font-weight: 700;
+            color: var(--text-main);
+            margin-bottom: 20px;
+            text-align: left;
+            padding-left: 8px;
+            border-left: 4px solid var(--primary);
+        }
+
+        .calendar-grid { 
+            display: grid; 
+            grid-template-columns: repeat(7, 1fr); 
+            gap: 12px; 
+        }
+
+        .calendar-header-cell { 
+            text-align: center; 
+            color: var(--text-muted);
+            font-size: 0.875rem;
+            font-weight: 600;
+            padding: 8px;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .calendar-day { 
+            background: #f8fafc;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            min-height: 120px; 
+            padding: 8px; 
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .calendar-day:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1);
+            background: #fff;
+        }
+
+        .calendar-day.empty { 
+            background: transparent;
+            border: 1px dashed var(--border);
+        }
+
+        .day-number { 
+            font-size: 0.875rem; 
+            font-weight: 700;
+            display: flex; 
+            justify-content: space-between; 
+            align-items: center;
+            margin-bottom: 4px;
+            color: var(--text-muted);
+        }
+
+        .week-badge {
+            font-size: 0.7rem;
+            background: #eff6ff;
+            color: var(--primary);
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-weight: 600;
+        }
+
+        .event-item { 
+            padding: 6px 8px; 
+            border-radius: 6px;
+            font-size: 0.75rem; 
+            font-weight: 500;
+            line-height: 1.3;
+            border-left: 3px solid transparent;
+        }
+
+        .type-morning { 
+            background: #ecfdf5; 
+            color: #065f46;
+            border-left-color: var(--morning); 
+        }
+
+        .type-afternoon { 
+            background: #fffbeb; 
+            color: #92400e;
+            border-left-color: var(--afternoon); 
+        }
+
+        .type-evening { 
+            background: #f5f3ff; 
+            color: #3730a3;
+            border-left-color: var(--evening); 
+        }
+
+        .ev-time { 
+            font-weight: 700; 
+            display: block;
+            font-size: 0.7rem;
+            opacity: 0.8;
+            margin-bottom: 2px;
+        }
+
+        .ev-location { 
+            display: block;
+            font-size: 0.7rem;
+            font-style: italic;
+            margin-top: 2px;
+            opacity: 0.8;
+        }
+
+        .ev-title {
+            word-break: break-word;
+        }
+
+        @media print {
+            body { background: white; padding: 0; }
+            .month-container { box-shadow: none; border-color: #eee; page-break-inside: avoid; }
+        }
     `;
 
     const fullHtml = `
@@ -773,13 +922,19 @@ document.getElementById('btnSaveHtml').addEventListener('click', () => {
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <title>Course Schedule</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>我的课表 - ScheduleAG</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap" rel="stylesheet">
     <style>
         ${cssText}
     </style>
 </head>
 <body>
-    <div style="max-width: 1200px; margin: 0 auto; padding: 20px;">
+    <header class="export-header">
+        <h1>我的课程表</h1>
+        <p>由 ScheduleAG 自动生成</p>
+    </header>
+    <div class="content-wrapper">
         ${container.innerHTML}
     </div>
 </body>
