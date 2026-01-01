@@ -164,21 +164,17 @@ function parseCourseString(cellContent) {
                 }
             }
         } else {
-            // Fallback: strict index if no "X周" found (maybe just 1-16 without '周'?)
-            if (parts.length >= 4) {
-                weeks = parseWeekString(parts[2]); // Try index 2
-                location = parts[3];
-                className = parts[5] || "";
-            } else {
-                // If really can't find weeks, we can't schedule it.
-                // Try logging error?
-                console.warn("Could not parse course string (no weeks found):", courseStr);
-                return;
-            }
+            // FALLBACK: If no "X周" found, we still keep the course.
+            // It might just be "College PE" or similar.
+            // We leave weeks empty; generateSchedule will handle distribution.
+            console.warn("No weeks found for course:", courseStr);
+            weeks = [];
+            location = parts[1] || ""; // Guess location might be parts[1]
+            className = parts[2] || "";
         }
 
-        // 2. Location Simplification
-        location = simplifyLocation(location);
+        // 2. Location Simplification & Placeholder
+        location = simplifyLocation(location) || "待通知";
 
         // 3. Name Simplification
         const displayName = simplifyName(name);
@@ -301,6 +297,7 @@ function generateSchedule() {
         console.log("Day Map:", colToDayIdx);
         // Iterate rows below header
         const events = [];
+        const weeklessBuffer = []; // Buffer for courses without specific weeks
 
         // Read current time settings from UI
         // Fix: Removed unused timeInputs variable
@@ -354,6 +351,12 @@ function generateSchedule() {
 
             if (periodNum === -1) periodNum = (r - headerRowIdx);
 
+            // Force Alignment to 2-period blocks (1-2, 3-4, 5-6, 7-8, 9-10)
+            // If period is even (2, 4, 6, 8, 10), move it back to the odd start (1, 3, 5, 7, 9)
+            if (periodNum > 0 && periodNum % 2 === 0) {
+                periodNum = periodNum - 1;
+            }
+
             Object.keys(colToDayIdx).forEach(colIdx => {
                 const cellContent = row[colIdx];
                 if (!cellContent) return;
@@ -362,43 +365,89 @@ function generateSchedule() {
                 const dayOfWeeK = colToDayIdx[colIdx];
 
                 courses.forEach(course => {
+                    const pIdx = periodNum - 1;
+                    const timeSlot = currentSlots[pIdx] || { start: '00:00', end: '00:00' };
+
+                    // Double Period Logic (User Request: 1->1-2, 3->3-4 etc.)
+                    let displayPeriod = `${periodNum}`;
+                    let realEndTime = timeSlot.end;
+
+                    // If odd period, assume it covers the next one too
+                    if (periodNum % 2 !== 0) {
+                        const nextPIdx = pIdx + 1;
+                        if (currentSlots[nextPIdx]) {
+                            realEndTime = currentSlots[nextPIdx].end;
+                            displayPeriod = `${periodNum}-${periodNum + 1}`;
+                        }
+                    }
+
+                    let timeOfDay = 'morning';
+                    if (periodNum >= 5 && periodNum <= 8) timeOfDay = 'afternoon';
+                    if (periodNum >= 9) timeOfDay = 'evening';
+
                     course.weeks.forEach(weekNum => {
                         const daysToAdd = (weekNum - 1) * 7 + (dayOfWeeK - 1);
                         const targetDate = new Date(semesterStart);
                         targetDate.setDate(semesterStart.getDate() + daysToAdd);
 
-                        const pIdx = periodNum - 1;
-                        const timeSlot = currentSlots[pIdx] || { start: '00:00', end: '00:00' };
-
-                        // Double Period Logic (User Request: 1->1-2, 3->3-4 etc.)
-                        let displayPeriod = `${periodNum}`;
-                        let realEndTime = timeSlot.end;
-
-                        // If odd period, assume it covers the next one too
-                        if (periodNum % 2 !== 0) {
-                            const nextPIdx = pIdx + 1;
-                            if (currentSlots[nextPIdx]) {
-                                realEndTime = currentSlots[nextPIdx].end;
-                                displayPeriod = `${periodNum}-${periodNum + 1}`;
-                            }
-                        }
-
-                        let timeOfDay = 'morning';
-                        if (periodNum >= 5 && periodNum <= 8) timeOfDay = 'afternoon';
-                        if (periodNum >= 9) timeOfDay = 'evening';
-
+                        const classSuffix = course.className ? ` (${course.className})` : '';
                         events.push({
                             date: targetDate,
+                            weekNum: weekNum, // Store weekNum for active week tracking
                             period: periodNum,
                             displayPeriod: displayPeriod, // New Badge Text
                             startTime: timeSlot.start,
                             endTime: realEndTime, // Updated End Time
-                            title: `${course.displayName} (${course.className})`,
+                            title: `${course.displayName}${classSuffix}`,
                             location: course.location,
-                            description: `${course.rawName} (${course.className})`,
+                            description: `${course.rawName}${classSuffix}`,
                             timeOfDay: timeOfDay,
                             raw: course
                         });
+                    });
+
+                    // Track weekless courses for post-processing
+                    if (course.weeks.length === 0) {
+                        weeklessBuffer.push({
+                            course: course,
+                            dayOfWeek: dayOfWeeK,
+                            periodNum: periodNum,
+                            displayPeriod: displayPeriod,
+                            startTime: timeSlot.start,
+                            realEndTime: realEndTime,
+                            timeOfDay: timeOfDay
+                        });
+                    }
+                });
+            });
+        }
+
+        // --- Post-Processing for Weekless Courses ---
+        if (weeklessBuffer.length > 0) {
+            // 1. Identify all weeks that have at least one course
+            const activeWeeks = new Set();
+            events.forEach(ev => activeWeeks.add(ev.weekNum));
+
+            // 2. Assign weekless courses to all these weeks
+            weeklessBuffer.forEach(item => {
+                activeWeeks.forEach(weekNum => {
+                    const daysToAdd = (weekNum - 1) * 7 + (item.dayOfWeek - 1);
+                    const targetDate = new Date(semesterStart);
+                    targetDate.setDate(semesterStart.getDate() + daysToAdd);
+
+                    const classSuffix = item.course.className ? ` (${item.course.className})` : '';
+                    events.push({
+                        date: targetDate,
+                        weekNum: weekNum,
+                        period: item.periodNum,
+                        displayPeriod: item.displayPeriod,
+                        startTime: item.startTime,
+                        endTime: item.realEndTime,
+                        title: `${item.course.displayName}${classSuffix}`,
+                        location: item.course.location,
+                        description: `${item.course.rawName}${classSuffix} (待通知)`,
+                        timeOfDay: item.timeOfDay,
+                        raw: item.course
                     });
                 });
             });
