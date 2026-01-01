@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>ScheduleAG - 课程表解析工具</title>
+    <link rel="stylesheet" href="style.css">
+    <!-- SheetJS for Excel processing -->
+    <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+</head>
+
+<body>
+    <div class="app-container">
+        <!-- Configuration Area -->
+        <aside class="config-panel no-print">
+            <h1>ScheduleAG</h1>
+
+            <div class="config-group">
+                <label class="btn-primary">
+                    选择 Excel 课表
+                    <input type="file" id="fileUpload" accept=".xlsx, .xls" hidden>
+                </label>
+                <p id="fileName" class="status-text">未选择文件</p>
+            </div>
+
+            <div class="config-group">
+                <label>开学第一周周一</label>
+                <input type="date" id="semesterStart" value="2025-09-01">
+            </div>
+
+            <div class="config-group">
+                <h3>节次时间设置</h3>
+                <div id="timeSettings" class="time-settings">
+                    <!-- Javascript will populate this -->
+                </div>
+            </div>
+
+            <div class="action-buttons">
+                <button id="btnGenerate" class="btn-action">生成日程</button>
+                <div class="export-group" style="border-top: 1px solid #eee; margin-top: 1rem; padding-top: 0.5rem;">
+                    <label for="exportTarget"
+                        style="display:block; font-size:0.8rem; color:#666; margin-bottom:0.3rem;">选择ICS日历导出格式：</label>
+                    <select id="exportTarget" class="btn-secondary" style="margin-bottom: 0.5rem; width: 100%;">
+                        <option value="universal">通用 (Universal)</option>
+                        <option value="ios">iPhone (iOS)</option>
+                        <option value="android">Android (Google)</option>
+                        <option value="windows">Windows (Outlook)</option>
+                    </select>
+                    <button id="btnExport" class="btn-secondary">导出 ICS 日历</button>
+                    <button id="btnSaveHtml" class="btn-secondary">保存为网页 (HTML)</button>
+                </div>
+                <button id="btnPrint" class="btn-secondary">打印月历</button>
+            </div>
+        </aside>
+
+        <!-- Main Content Area -->
+        <main class="main-content">
+            <div id="calendarArea" class="calendar-container">
+                <div class="placeholder-text">请上传课表并生成日程</div>
+            </div>
+        </main>
+    </div>
+    <script src="script.js"></script>
+</body>
+
+</html>
