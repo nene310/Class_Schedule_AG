@@ -92,10 +92,38 @@ function handleFileUpload(e) {
 function parseCourseString(cellContent) {
     if (!cellContent || typeof cellContent !== 'string') return [];
 
-    // Split by multiple lines if any, but the prompt says single string often just split by regex or just handle the whole block.
-    // The prompt says "Cell content may submit multiple courses, separated by newline".
-    // Example: "Course1...\nCourse2..."
-    const independentCourses = cellContent.split(/\r?\n/).filter(s => s.trim().length > 0);
+    // Pre-process: Handle accidental newlines
+    // Split by newlines first
+    const rawLines = cellContent.split(/\r?\n/).map(s => s.trim()).filter(s => s.length > 0);
+    const independentCourses = [];
+
+    let buffer = "";
+    let bufferHasWeek = false;
+
+    // Helper to check for week info (same regex as later)
+    const hasWeekInfo = (str) => /(\d+[-~]\d+|\d+)周/.test(str);
+
+    rawLines.forEach(line => {
+        if (hasWeekInfo(line)) {
+            if (bufferHasWeek) {
+                // Buffer was a complete course. Push it.
+                independentCourses.push(buffer);
+                buffer = line;
+                bufferHasWeek = true;
+            } else {
+                // Buffer was prefix fragments (Name without week). Merge.
+                buffer = buffer + line;
+                bufferHasWeek = true;
+            }
+        } else {
+            // Line is fragment (no week). 
+            // Append to buffer (whether buffer has week or not, it belongs to current context)
+            buffer = buffer + line;
+        }
+    });
+
+    if (buffer) independentCourses.push(buffer);
+
     const parsedCourses = [];
 
     independentCourses.forEach(courseStr => {
