@@ -112,13 +112,24 @@ function parseCourseString(cellContent) {
                 bufferHasWeek = true;
             } else {
                 // Buffer was prefix fragments (Name without week). Merge.
-                buffer = buffer + line;
+                // Add space if buffer doesn't end with slash/newline to keep words separate
+                buffer = buffer.trim();
+                if (buffer && !buffer.endsWith('/') && !buffer.endsWith('\n')) {
+                    buffer += " " + line;
+                } else {
+                    buffer = buffer + line;
+                }
                 bufferHasWeek = true;
             }
         } else {
             // Line is fragment (no week). 
             // Append to buffer (whether buffer has week or not, it belongs to current context)
-            buffer = buffer + line;
+            buffer = buffer.trim();
+            if (buffer && !buffer.endsWith('/') && !buffer.endsWith('\n')) {
+                buffer += " " + line;
+            } else {
+                buffer = buffer + line;
+            }
         }
     });
 
@@ -132,7 +143,16 @@ function parseCourseString(cellContent) {
         // Format B: Name/Weeks/Location (Simplified)
         // Format C: Missing slashes? (Not handled yet, assuming at least some delimiters)
 
-        const parts = courseStr.split('/').map(s => s.trim());
+        // Pre-split handling: if "/" is missing but newlines were there (now spaces), 
+        // we might have "Name 1-16周 Location". 
+        // Let's ensure slashes exist around week info if missing.
+        let normalizedStr = courseStr;
+        const weekRegex = /(\d+[-~]\d+|\d+)周/;
+        if (!normalizedStr.includes('/') && weekRegex.test(normalizedStr)) {
+            normalizedStr = normalizedStr.replace(weekRegex, (match) => ` / ${match} / `);
+        }
+
+        const parts = normalizedStr.split('/').map(s => s.trim()).filter(s => s.length > 0);
 
         let name = parts[0];
         let weeks = [];
@@ -141,28 +161,42 @@ function parseCourseString(cellContent) {
 
         // Strategy: Find "Week" part specifically
         // It usually contains digit + "周"
-        const weekPartIdx = parts.findIndex(p => /(\d+[-~]\d+|\d+)周/.test(p));
+        const weekPartIdx = parts.findIndex(p => weekRegex.test(p));
 
         if (weekPartIdx !== -1) {
             // Found Weeks
             weeks = parseWeekString(parts[weekPartIdx]);
 
-            // Name is usually index 0. If week is index 0 (unlikely), name is missing.
-            if (weekPartIdx === 0) name = "未知课程";
-
-            // Location is usually AFTER weeks
-            // Check parts after weekPartIdx
-            for (let i = weekPartIdx + 1; i < parts.length; i++) {
-                const p = parts[i];
-                // Heuristic: Class name often has "班" or "级" or "专业"
-                if (/班|级|专业/.test(p)) {
-                    className = p;
-                } else if (!location) {
-                    // First non-class string after weeks is likely Location
-                    // Ignore short codes if they look like nonsense? 
-                    location = p;
+            // Name discovery:
+            if (weekPartIdx === 0) {
+                // Case: "Software Engineering 1-16周 / Location"
+                // Split parts[0] by the week regex
+                const weekMatch = parts[0].match(weekRegex);
+                if (weekMatch) {
+                    const weekStr = weekMatch[0];
+                    const splitPos = parts[0].indexOf(weekStr);
+                    name = parts[0].substring(0, splitPos).trim() || "未知课程";
+                    // If name was "Unknown", maybe it's just "1-16周 / Name / Location"? 
+                    // But usually name comes first.
+                } else {
+                    name = "未知课程";
                 }
             }
+
+            // Location and Class Name discovery
+            const locs = [];
+            for (let i = weekPartIdx + 1; i < parts.length; i++) {
+                const p = parts[i];
+                // Refined Heuristic: Class name usually contains digits or "专业" followed by "班" or "级"
+                // And we exclude common patterns for "number of people" (counts)
+                const isPeopleCount = /人(数)?[:：°\s]*\d+|\d+\s*人/.test(p);
+                if (/(\d+|专业).*?[班|级|专业]/.test(p) && !isPeopleCount) {
+                    className = p;
+                } else if (p) {
+                    locs.push(p);
+                }
+            }
+            location = locs.join(" ");
         } else {
             // FALLBACK: If no "X周" found, we still keep the course.
             // It might just be "College PE" or similar.
@@ -236,18 +270,60 @@ function parseWeekString(str) {
 function simplifyLocation(loc) {
     if (!loc) return "";
     let s = loc.replace(/实验实训中心/g, "实训楼");
-    // Remove "桂林洋 " or generic campus names if known?
-    // Prompt: Remove "冗余校区名", keep "一教N104". 
-    // Example: "桂林洋 一教N104" -> "一教N104"
-    // A simple heuristic: take the last meaningful part if separated by space?
-    // Or just replace known campus names.
-    s = s.replace(/桂林洋/g, "").trim();
-    return s;
+
+    // 1. Remove labels like "校区：", "场地：", "地点：", "场所："
+    s = s.replace(/(校区|场地|地点|场所)[：:]\s*/g, "");
+
+    // 2. Aggressively remove Campus noise
+    const campusNoise = ["桂林洋", "府城", "龙昆南", "校区"];
+    campusNoise.forEach(noise => {
+        s = s.replace(new RegExp(noise + "(校区)?", 'g'), "");
+    });
+    s = s.replace(/校区[：:]?/g, "");
+
+    // 3. Balanced Building/Room Identification and Truncation
+    const buildingSuffixes = "楼|教|馆|室|厅|部|大楼|场|苑|中心|基地";
+    const roomPattern = "[A-Za-z]?\\d{2,5}";
+
+    // Strategy: Find the first room number to determine the anchor point.
+    // If found, the building name is everything preceding it.
+    const roomMatch = s.match(new RegExp(roomPattern));
+    if (roomMatch) {
+        const roomStr = roomMatch[0];
+        const roomIdx = s.indexOf(roomStr);
+        let bldPart = s.substring(0, roomIdx).trim();
+
+        // If there's a building name before the room, keep it.
+        // Otherwise just keep the room.
+        s = bldPart + (bldPart ? " " : "") + roomStr;
+    } else {
+        // If no room number, look for the most complete building name using greedy match
+        const bldMatch = s.match(new RegExp(`^.*?(.+(?:${buildingSuffixes}))`));
+        if (bldMatch) {
+            s = bldMatch[1];
+        }
+    }
+
+    // Final cleanup: remove multi-spaces and trim
+    return s.replace(/\s+/g, " ").trim();
 }
 
 function simplifyName(name) {
-    // User requested full name display
-    return name;
+    if (!name) return "";
+
+    // 1. Find the first occurrence of balanced brackets (English or Chinese)
+    // We want to keep everything from the start until the end of the FIRST bracketed pair.
+    const match = name.match(/^(.*?[[\(（][^()（）]*[\)）])/);
+
+    let s = name;
+    if (match && match[1]) {
+        s = match[1];
+    }
+
+    // 2. Clean up trailing spaces or non-word delimiters
+    s = s.replace(/[\s\-_/]+$/, "");
+
+    return s.trim();
 }
 
 // Global Events Store
